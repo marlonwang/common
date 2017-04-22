@@ -1,10 +1,29 @@
 package net.logvv.ftp.utils;
 
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import org.apache.http.*;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.entity.BasicHttpEntity;
+import org.apache.http.entity.mime.MultipartEntityBuilder;
+import org.apache.http.entity.mime.content.FileBody;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.http.ssl.TrustStrategy;
+import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.net.ssl.SSLContext;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.KeyManagementException;
@@ -16,31 +35,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
-import javax.net.ssl.SSLContext;
-
-import org.apache.http.Consts;
-import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.NameValuePair;
-import org.apache.http.client.ClientProtocolException;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpDelete;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-import org.apache.http.entity.BasicHttpEntity;
-import org.apache.http.impl.client.HttpClientBuilder;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.ssl.SSLContextBuilder;
-import org.apache.http.ssl.TrustStrategy;
-import org.apache.http.util.EntityUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Http请求工具,支持ssl单向加密</br>
@@ -549,5 +543,108 @@ public class HttpUtils {
 		
 		return httpClient;
 	}
-	
+
+	/**
+	 * httpclient的文件上传
+	 * TODO 返回上传后的文件的url
+	 * @Description
+	 * @param requestUrl  上传服务器地址
+	 * @param localFile   文件路径
+	 * @return
+	 * @author wangwei
+	 * @date 2017年4月20日 上午10:31:27
+	 */
+	public static boolean upload(String requestUrl,String localFile)
+	{
+		boolean status = false;
+		String result = "";
+		HttpClient httpClient = buildHttpClient(false); // 非https
+
+		try {
+			HttpPost httpPost = new HttpPost(requestUrl);
+			// 文件转成流对象FileBody
+			FileBody fileBody = new FileBody(new File(localFile));
+			// addPart 相当于 <input type="file" name="file" />
+			HttpEntity reqEntity = (HttpEntity) MultipartEntityBuilder.create().addPart("file", fileBody);
+			httpPost.setEntity(reqEntity);
+
+			HttpResponse response = httpClient.execute(httpPost);
+			int responseCode = response.getStatusLine().getStatusCode();
+			if(HttpStatus.SC_OK == responseCode){
+				status = true;
+				result = EntityUtils.toString(response.getEntity(),"utf-8");
+			}else {
+				LOGGER.error("response code {}",responseCode);
+			}
+
+			LOGGER.debug(">>>> response:\n{}",result);
+
+		} catch (ClientProtocolException e) {
+			LOGGER.error("HttpClient protocol error:{}",e);
+			return false;
+		} catch (IOException e) {
+			LOGGER.error("HttpClient io error:{}",e);
+			return false;
+		}
+
+		return status;
+	}
+
+	// 文件下载
+	public static void download(String remotePath,String localPath)
+	{
+		HttpClient httpClient = buildHttpClient(false);
+		OutputStream out = null;
+		InputStream in = null;
+
+		try {
+			HttpGet httpGet = new HttpGet(remotePath);
+			HttpResponse response = httpClient.execute(httpGet);
+			int responserCode = response.getStatusLine().getStatusCode();
+			if(HttpStatus.SC_OK == responserCode){
+				in = response.getEntity().getContent();
+				long length = response.getEntity().getContentLength();
+				if(length <= 0){
+					LOGGER.info("download file not exist.");
+					return ;
+				}
+
+				// 保存文件到本地
+				File file = new File(localPath);
+				if(!file.exists()){
+					file.createNewFile();
+				}
+				out = new FileOutputStream(file);
+				byte[] buffer = new byte[4096];
+				int readLength = 0;
+				while ((readLength = in.read(buffer)) > 0) {
+					byte[] bytes = new byte[readLength];
+					System.arraycopy(buffer, 0, bytes, 0, readLength);
+					out.write(bytes);
+				}
+				out.flush();
+			}else {
+				LOGGER.error("response code:{}",responserCode);
+			}
+		} catch (IOException e) {
+			LOGGER.error("download io exception:{}",e);
+			return ;
+		} catch (Exception e) {
+			LOGGER.error("downlod exception:{}",e);
+			return ;
+		}finally{
+			try {
+				if(in != null){
+					in.close();
+				}
+				if(out != null){
+					out.close();
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+
+	}
+
 }
